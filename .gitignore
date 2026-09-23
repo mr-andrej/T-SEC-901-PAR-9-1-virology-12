@@ -1,0 +1,15 @@
+# Build artifacts
+*.exe
+*.dll
+*.o
+*.obj
+*.pdb
+__pycache__/
+*.pyc
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
