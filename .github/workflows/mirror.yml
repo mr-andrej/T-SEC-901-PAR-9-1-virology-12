@@ -14,9 +14,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Push main to school repo
-        env:
-          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
-        run: |
-          git remote add school "https://x-access-token:${MIRROR_TOKEN}@github.com/EpitechMscProPromo2027/T-SEC-901-PAR-9-1-virology-12.git"
-          git push school main:main --force
+      - name: Mirror to Epitech repository
+        uses: pixta-dev/repository-mirroring-action@v1
+        with:
+          target_repo_url: git@github.com:EpitechMscProPromo2027/T-SEC-901-PAR-9-1-virology-12.git
+          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
