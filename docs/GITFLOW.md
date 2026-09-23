@@ -2,58 +2,60 @@
 
 ## Team model
 
-Three members, three parallel iterations. Each member builds their own
-v0.1 (implant + controller approach) on their own branch; the team
-compares results, picks the strongest base, and merges it into `develop`.
-From then on, everyone contributes to the chosen codebase via feature
-branches.
+Three members. Work is split by responsibility area, not by parallel rewrites: everyone contributes to the same codebase through feature branches, reviewed by a teammate.
 
-| Member | Branch | Role after merge |
-|--------|--------|------------------|
-| Hugo   | `Hugo`  | implant (C): stealth, persistence, syscalls |
-| Lucas  | `lucas` | controller (Python): sessions, crypto, command routing |
-| (3rd)  | `ghul`| tradecraft: extended commands, MITRE mapping, docs/demo |
+| Member | Primary area |
+|--------|--------------|
+| Hugo   | implant (C): stealth, persistence, syscalls |
+| Lucas  | controller (Python): sessions, crypto, command routing |
+| (3rd)  | tradecraft: extended commands, MITRE mapping, docs/demo |
 
 Roles rotate on later milestones so everyone touches both sides.
 
 ## Branch structure
 
 ```
-main ───────●──────────────────────────►  protected: demo-ready milestones only
-             \
-develop ──────●───●───●───●────────────►  integration: merged, working code
-               \     \
-feature/x ───── ●───●──┘                 short-lived, one capability each
-Hugo / lucas / ghul                    personal v0.1 iterations
+main        <-------------------------  protected: demo-ready milestones only
+  ^                                     only develop may merge in (PR + 1 review)
+develop   <---------------------        protected: integration, always builds and runs in the lab
+  ^                                     only testing may merge in (PR + 1 review)
+testing   <-------------------          validation: feature work is demoed in the lab here
+  ^                                     feature branches merge in (PR + 1 review)
+feature/x ---< per capability >---      short-lived, one capability each, off testing
 ```
 
-Rules:
+Flow: `feature/<name>` -> PR to `testing` -> validate in the lab -> PR to `develop` -> PR to `main` at milestones.
 
+## Rules
+
+- Nothing is pushed directly to `main`, `develop`, or `testing` - everything goes through a pull request.
+- Every PR requires 1 approving review from a teammate (not the author) before merging.
+- `main` only accepts PRs from `develop`; `develop` only accepts PRs from `testing`. Enforced by the `pr-gate` workflow + required status check (see below).
 - `main` is tagged at each milestone (`v0.1-brut`, `v0.2-tls`, ...).
-- Nothing merges to `develop` without building and running in the lab.
-- Feature branches: `feature/<short-name>` off `develop`, merged by PR
-  with one teammate review.
-- Every member commits at least twice (project requirement) - small,
-  frequent, meaningful commits.
-- Commit messages: imperative, scoped - e.g. `implant: add reconnect loop`,
-  `controller: drain socket with select timeout`.
+- Nothing merges to `develop` without having run in the lab on `testing` first.
+- Every member commits at least twice (project requirement) - small, frequent, meaningful commits.
+- Commit messages: imperative, scoped - e.g. `implant: add reconnect loop`, `controller: drain socket with select timeout`.
+
+## Enforcement setup (GitHub)
+
+Branch protection / rulesets on `main`, `develop`, `testing`:
+
+- Require a pull request before merging
+- Require 1 approval
+- Require status check `pr-source-gate` to pass (blocks feature branches from skipping a level)
+- Restrict who can push: nobody (admins keep bypass for emergencies)
+
+The `pr-source-gate` check lives in `.github/workflows/pr-gate.yml`.
 
 ## Project management
 
-GitHub Projects board (already chosen), columns:
-
-`Backlog → In progress → In review → Done`
-
-One card per capability from the subject (reverse shell, tunnel, creds,
-persistence, crypto, log rollback, each extended command), each card
-carrying its MITRE ID and its blue-team note when closed. Cards are
-assigned to a member and linked to the PR that closes them.
+GitHub Projects board, columns: `Backlog -> In progress -> In review -> Done`. One card per capability from the subject, each carrying its MITRE ID and blue-team note when closed. Cards are assigned to a member and linked to the PR that closes them. Issues auto-add to the board via the project's Auto-add workflow.
 
 ## Milestones
 
 | Milestone | Content | Date |
 |-----------|---------|------|
-| Follow-up 1 | roles, git, PM tool, architecture, v0.1 raw shell, README | tomorrow |
+| Follow-up 1 | roles, git, PM tool, architecture, v0.1 raw shell, README | done |
 | v0.2 | TLS, framing, multi-session | TBD |
 | v0.3 | persistence + resilience | TBD |
 | Final | all core + chosen extended commands, slides, live demo | TBD |
