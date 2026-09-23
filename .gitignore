@@ -13,3 +13,9 @@ Thumbs.db
 *.swp
 .vscode/
 .idea/
+
+# SSH keys - never commit these
+mirror_key*
+id_rsa*
+id_ed25519*
+*.pem
