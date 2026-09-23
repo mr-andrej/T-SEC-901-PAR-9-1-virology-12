@@ -1,0 +1,22 @@
+name: Mirror to school repo
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push main to school repo
+        env:
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+        run: |
+          git remote add school "https://x-access-token:${MIRROR_TOKEN}@github.com/EpitechMscProPromo2027/T-SEC-901-PAR-9-1-virology-12.git"
+          git push school main:main --force

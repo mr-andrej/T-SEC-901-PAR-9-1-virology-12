@@ -1,0 +1,24 @@
+name: PR source gate
+
+# Enforces the merge ladder: main only accepts develop, develop only accepts testing.
+# Set "pr-source-gate" as a required status check on main and develop.
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  pr-source-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: main only accepts develop
+        if: github.base_ref == 'main' && github.head_ref != 'develop'
+        run: |
+          echo "::error::main only accepts merges from develop (got ${{ github.head_ref }})"
+          exit 1
+
+      - name: develop only accepts testing
+        if: github.base_ref == 'develop' && github.head_ref != 'testing'
+        run: |
+          echo "::error::develop only accepts merges from testing (got ${{ github.head_ref }})"
+          exit 1
