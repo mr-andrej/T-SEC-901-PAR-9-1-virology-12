@@ -50,6 +50,16 @@ Lab state (verified working):
    "v0.3 replaces the spawned shell with built-in commands, and this is
    exactly the telemetry we are designing against."
 
+## v0.2 follow-up demo: prove the encryption
+
+Same script as above, but step 6 flips from weakness to proof:
+
+1. Rebuild and redeploy (`bash tools/make_certs.sh` first if certs were rotated - the implant rebuild picks up the new pin).
+2. Wireshark on the same filter (`tcp.port == 4444`): the capture now shows the TLS handshake (`Client Hello`, `Server Hello`, `Certificate`) and then only `Application Data` - no readable commands. Compare side by side with the v0.1 capture.
+3. Optional MITM sanity check: point the implant at anything but the real controller (or swap the cert) - the pin check fails and no session opens. The implant trusts exactly one certificate.
+4. Multi-session: run the implant twice (or on two VMs), `sessions` lists both, `use <id>` switches between them.
+5. Defender view: Sysmon still catches the `cmd.exe` child process (EID 1) - that is the v0.3 target (built-in shell). Network content inspection is now blind; detection must move to metadata (port, JA3/JA4, timing). Say this out loud.
+
 ## Fallbacks
 
 - VM misbehaves -> the controller was also tested on localhost with a mock

