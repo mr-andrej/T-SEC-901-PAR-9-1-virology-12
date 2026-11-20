@@ -14,8 +14,16 @@ Thumbs.db
 .vscode/
 .idea/
 
-# SSH keys - never commit these
+# Secrets - never commit these
+certs/
+*.key
+*.pem
 mirror_key*
 id_rsa*
 id_ed25519*
-*.pem
+
+# Generated at build time by tools/make_certs.sh
+implant/cert_pin.h
+
+# Debug output
+implant_dbg.log
