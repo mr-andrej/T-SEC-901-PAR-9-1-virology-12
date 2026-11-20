@@ -10,20 +10,6 @@
 #include <bcrypt.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
-
-#ifdef IMPLANT_DEBUG
-static CRITICAL_SECTION dbg_cs;
-static int dbg_cs_ready = 0;
-#define DBG(...) do { \
-    if (!dbg_cs_ready) { InitializeCriticalSection(&dbg_cs); dbg_cs_ready = 1; } \
-    EnterCriticalSection(&dbg_cs); \
-    FILE *f = fopen("implant_dbg.log", "a"); \
-    if (f) { fprintf(f, __VA_ARGS__); fputc(10, f); fclose(f); } \
-    LeaveCriticalSection(&dbg_cs); } while (0)
-#else
-#define DBG(...) ((void)0)
-#endif
 
 #define CIPHER_CHUNK 16384
 
@@ -39,7 +25,7 @@ static bool grow(unsigned char **buf, size_t *cap, size_t need)
     return true;
 }
 
-/* Pull more ciphertext from the socket into the staging buffer.
+/* Pull more ciphertext from the socket into the staging buffer (blocking).
    Returns false when the connection is dead. */
 static bool fill_cipher(tls_conn *t)
 {
@@ -47,10 +33,8 @@ static bool fill_cipher(tls_conn *t)
         return false;
     int n = recv(t->sock, (char *)t->cipher_buf + t->cipher_len,
                  (int)(t->cipher_cap - t->cipher_len), 0);
-    if (n <= 0) {
-        DBG("recv failed: n=%d wsa=%d", n, WSAGetLastError());
+    if (n <= 0)
         return false;
-    }
     t->cipher_len += (size_t)n;
     return true;
 }
@@ -59,10 +43,8 @@ static bool send_all(SOCKET sock, const unsigned char *buf, size_t len)
 {
     while (len > 0) {
         int n = send(sock, (const char *)buf, (int)len, 0);
-        if (n <= 0) {
-            DBG("send failed: n=%d wsa=%d", n, WSAGetLastError());
+        if (n <= 0)
             return false;
-        }
         buf += n;
         len -= (size_t)n;
     }
@@ -79,6 +61,19 @@ static bool acquire_client_credentials(tls_conn *t)
     return AcquireCredentialsHandleA(NULL, (SEC_CHAR *)UNISP_NAME_A,
                                      SECPKG_CRED_OUTBOUND, NULL, &sc,
                                      NULL, NULL, &t->cred, NULL) == SEC_E_OK;
+}
+
+/* Keep the SECBUFFER_EXTRA remainder, if any, at the front of cipher_buf. */
+static void keep_extra(tls_conn *t, const SecBuffer *extra)
+{
+    if (extra && extra->BufferType == SECBUFFER_EXTRA) {
+        memmove(t->cipher_buf,
+                t->cipher_buf + (t->cipher_len - extra->cbBuffer),
+                extra->cbBuffer);
+        t->cipher_len = extra->cbBuffer;
+    } else {
+        t->cipher_len = 0;
+    }
 }
 
 static bool handshake(tls_conn *t)
@@ -111,34 +106,16 @@ static bool handshake(tls_conn *t)
         }
 
         if (ss == SEC_E_OK) {
-            if (in[1].BufferType == SECBUFFER_EXTRA) {
-                /* Post-handshake records already read: keep them. */
-                memmove(t->cipher_buf,
-                        t->cipher_buf + (t->cipher_len - in[1].cbBuffer),
-                        in[1].cbBuffer);
-                t->cipher_len = in[1].cbBuffer;
-            } else {
-                t->cipher_len = 0;
-            }
+            keep_extra(t, &in[1]);
             return true;
         }
-
         if (ss == SEC_I_CONTINUE_NEEDED || ss == SEC_E_INCOMPLETE_MESSAGE) {
-            if (in[1].BufferType == SECBUFFER_EXTRA) {
-                /* Handshake consumed only part of the buffer: keep the rest. */
-                memmove(t->cipher_buf,
-                        t->cipher_buf + (t->cipher_len - in[1].cbBuffer),
-                        in[1].cbBuffer);
-                t->cipher_len = in[1].cbBuffer;
-            } else {
-                t->cipher_len = 0;
-            }
+            keep_extra(t, &in[1]);
             if (!fill_cipher(t))
                 return false;
             started = true;
             continue;
         }
-
         return false; /* SEC_E_* hard failure */
     }
 }
@@ -185,7 +162,6 @@ bool tls_client_open(tls_conn *t, SOCKET sock, const unsigned char pin[32])
 {
     memset(t, 0, sizeof(*t));
     t->sock = sock;
-    InitializeCriticalSection(&t->lock);
 
     if (!acquire_client_credentials(t))
         return false;
@@ -221,11 +197,8 @@ bool tls_write(tls_conn *t, const void *data, int len)
         };
         SecBufferDesc desc = { SECBUFFER_VERSION, 4, bufs };
 
-        EnterCriticalSection(&t->lock);
         SECURITY_STATUS ss = EncryptMessage(&t->ctx, 0, &desc, 0);
-        LeaveCriticalSection(&t->lock);
         if (ss != SEC_E_OK) {
-            DBG("EncryptMessage failed: 0x%lx", ss);
             free(msg);
             return false;
         }
@@ -280,35 +253,57 @@ static int try_decrypt(tls_conn *t)
     }
     if (ss == SEC_E_INCOMPLETE_MESSAGE)
         return 0;
-    if (ss == SEC_I_RENEGOTIATE) {
-        DBG("DecryptMessage: SEC_I_RENEGOTIATE");
-        return -2;
-    }
-    DBG("DecryptMessage failed: 0x%lx", ss);
+    if (ss == SEC_I_RENEGOTIATE)
+        return -2; /* post-handshake messages are refused by design */
     return -2;
 }
 
-int tls_read(tls_conn *t, void *buf, int len)
+static int serve_plaintext(tls_conn *t, void *buf, int len)
 {
-    for (;;) {
-        if (t->plain_len > 0)
-            break;
-        EnterCriticalSection(&t->lock);
-        int r = try_decrypt(t);
-        LeaveCriticalSection(&t->lock);
-        if (r == -1)
-            return 0;
-        if (r == -2)
-            return -1;
-        if (r == 0 && !fill_cipher(t)) /* blocking recv, lock NOT held */
-            return -1;
-    }
-
     size_t n = t->plain_len < (size_t)len ? t->plain_len : (size_t)len;
     memcpy(buf, t->plain_buf, n);
     memmove(t->plain_buf, t->plain_buf + n, t->plain_len - n);
     t->plain_len -= n;
     return (int)n;
+}
+
+/* Is ciphertext waiting on the socket right now? */
+static int socket_state(tls_conn *t)
+{
+    fd_set rfds;
+    struct timeval tv = { 0, 0 };
+
+    FD_ZERO(&rfds);
+    FD_SET(t->sock, &rfds);
+    return select(0, &rfds, NULL, NULL, &tv); /* >0 readable, 0 idle, <0 dead */
+}
+
+int tls_read_nb(tls_conn *t, void *buf, int len)
+{
+    if (t->plain_len > 0)
+        return serve_plaintext(t, buf, len);
+
+    int r = try_decrypt(t);
+    if (r == -1 || r == -2)
+        return -1;
+    if (t->plain_len > 0)
+        return serve_plaintext(t, buf, len);
+
+    if (r == 0) { /* need more ciphertext: check the socket without blocking */
+        int s = socket_state(t);
+        if (s < 0)
+            return -1;
+        if (s == 0)
+            return 0;
+        if (!fill_cipher(t))
+            return -1;
+        r = try_decrypt(t);
+        if (r == -1 || r == -2)
+            return -1;
+    }
+    if (t->plain_len > 0)
+        return serve_plaintext(t, buf, len);
+    return 0; /* partial record: nothing to give yet */
 }
 
 void tls_close(tls_conn *t)
@@ -340,5 +335,4 @@ void tls_close(tls_conn *t)
     free(t->plain_buf);
     t->cipher_buf = t->plain_buf = NULL;
     t->cipher_len = t->cipher_cap = t->plain_len = t->plain_cap = 0;
-    DeleteCriticalSection(&t->lock);
 }

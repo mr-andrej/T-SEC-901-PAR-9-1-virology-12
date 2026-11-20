@@ -203,7 +203,7 @@ def main() -> None:
     ctx.load_cert_chain(args.cert, args.key)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     # SChannel reports TLS 1.3 NewSessionTicket as SEC_I_RENEGOTIATE, which
-    # the implant does not handle. Suppress tickets on the server side.
+    # the implant refuses by design. Suppress tickets on the server side.
     ctx.options |= getattr(ssl, "OP_NO_TICKET", 0)
 
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
